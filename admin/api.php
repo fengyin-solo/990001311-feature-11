@@ -1,12 +1,27 @@
 <?php
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../config/database.php';
-requireAdmin();
+
+// 接口会话校验：登录失效时返回 JSON 401（而非跳转登录页），
+// 便于前端保留当前操作状态并允许用户重新登录后重试
+if (empty($_SESSION['admin_id'])) {
+    jsonResponse(401, '登录状态已失效，请重新登录');
+}
 
 header('Content-Type: application/json; charset=utf-8');
 
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 $db = getDB();
+
+/**
+ * 解析批量操作的ID列表（支持数组或逗号分隔字符串），去重并过滤非法值
+ */
+function parseIds($raw) {
+    if (!is_array($raw)) $raw = explode(',', (string)$raw);
+    $ids = array_map('intval', $raw);
+    $ids = array_filter($ids, function($id) { return $id > 0; });
+    return array_values(array_unique($ids));
+}
 
 switch ($action) {
     case 'detail':
@@ -20,6 +35,7 @@ switch ($action) {
         $msg['content'] = nl2br(cleanInput($msg['content']));
         $msg['title'] = cleanInput($msg['title']);
         $msg['nickname'] = cleanInput($msg['nickname']);
+        $msg['audit_note'] = !empty($msg['audit_note']) ? nl2br(cleanInput($msg['audit_note'])) : '';
         jsonResponse(0, 'ok', $msg);
         break;
 
@@ -30,6 +46,120 @@ switch ($action) {
         $stmt = $db->prepare("UPDATE messages SET status = ? WHERE id = ?");
         $stmt->execute([$status, $id]);
         jsonResponse(0, '操作成功');
+        break;
+
+    case 'batch_preview':
+        // 批量审核前预览：返回每个选中项的当前状态，标记哪些会被实际处理
+        $ids = parseIds($_POST['ids'] ?? []);
+        if (empty($ids)) jsonResponse(1, '请先选择要审核的留言');
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $db->prepare("SELECT id, title, nickname, status FROM messages WHERE id IN ($placeholders)");
+        $stmt->execute($ids);
+        $found = array_column($stmt->fetchAll(), null, 'id');
+
+        $items = [];
+        $actionableCount = 0;
+        foreach ($ids as $id) {
+            if (!isset($found[$id])) {
+                $items[] = [
+                    'id' => $id,
+                    'exists' => false,
+                    'actionable' => false,
+                    'title' => '',
+                    'status_label' => '留言不存在',
+                ];
+                continue;
+            }
+            $m = $found[$id];
+            $actionable = intval($m['status']) === 0;
+            if ($actionable) $actionableCount++;
+            $items[] = [
+                'id' => intval($m['id']),
+                'exists' => true,
+                'actionable' => $actionable,
+                'title' => cleanInput($m['title']),
+                'nickname' => cleanInput($m['nickname']),
+                'status' => intval($m['status']),
+                'status_label' => getStatusLabel($m['status']),
+            ];
+        }
+        jsonResponse(0, 'ok', [
+            'items' => $items,
+            'total' => count($items),
+            'actionable_count' => $actionableCount,
+        ]);
+        break;
+
+    case 'batch_audit':
+        // 批量审核：逐条独立事务处理，单条失败不影响其他条目，成功项不回滚
+        $ids = parseIds($_POST['ids'] ?? []);
+        $statusRaw = $_POST['status'] ?? '';
+        $status = is_scalar($statusRaw) ? intval($statusRaw) : 0;
+        $noteRaw = $_POST['note'] ?? '';
+        $note = is_string($noteRaw) ? trim($noteRaw) : '';
+
+        if (empty($ids)) jsonResponse(1, '请先选择要审核的留言');
+        if (!in_array($status, [1, 2])) jsonResponse(1, '无效状态');
+        if (mb_strlen($note) > 500) jsonResponse(1, '处理意见不能超过500字');
+
+        $results = [];
+        $successCount = 0;
+        $failCount = 0;
+
+        foreach ($ids as $id) {
+            try {
+                $db->beginTransaction();
+
+                $stmt = $db->prepare("SELECT id, status FROM messages WHERE id = ? FOR UPDATE");
+                $stmt->execute([$id]);
+                $msg = $stmt->fetch();
+
+                if (!$msg) {
+                    $db->rollBack();
+                    $results[] = ['id' => $id, 'success' => false, 'msg' => '留言不存在或已被删除'];
+                    $failCount++;
+                    continue;
+                }
+
+                if (intval($msg['status']) !== 0) {
+                    $db->rollBack();
+                    $results[] = [
+                        'id' => $id,
+                        'success' => false,
+                        'msg' => '状态已变更（当前：' . getStatusLabel($msg['status']) . '），已跳过',
+                        'current_status' => intval($msg['status']),
+                    ];
+                    $failCount++;
+                    continue;
+                }
+
+                $stmt = $db->prepare("UPDATE messages SET status = ?, audit_note = ?, audited_at = NOW() WHERE id = ? AND status = 0");
+                $stmt->execute([$status, $note !== '' ? $note : null, $id]);
+
+                if ($stmt->rowCount() === 0) {
+                    // 并发兜底：行锁内状态仍为0但更新未生效时按失败返回
+                    $db->rollBack();
+                    $results[] = ['id' => $id, 'success' => false, 'msg' => '状态已变更，已跳过'];
+                    $failCount++;
+                    continue;
+                }
+
+                $db->commit();
+                $results[] = ['id' => $id, 'success' => true, 'msg' => $status === 1 ? '已通过' : '已拒绝'];
+                $successCount++;
+            } catch (Exception $e) {
+                if ($db->inTransaction()) $db->rollBack();
+                $results[] = ['id' => $id, 'success' => false, 'msg' => '处理失败，请重试'];
+                $failCount++;
+            }
+        }
+
+        jsonResponse(0, "处理完成：成功 {$successCount} 条，失败 {$failCount} 条", [
+            'results' => $results,
+            'success_count' => $successCount,
+            'fail_count' => $failCount,
+        ]);
         break;
 
     case 'delete':

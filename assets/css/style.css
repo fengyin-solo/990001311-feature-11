@@ -451,6 +451,50 @@ a:hover { color: var(--primary-dark); }
 .td-actions { white-space: nowrap; display: flex; gap: 4px; }
 .text-center { text-align: center; }
 
+/* Batch Audit */
+.th-check, .td-check { width: 36px; text-align: center; }
+.th-check input, .td-check input { cursor: pointer; }
+.batch-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    background: #fff;
+    padding: 10px 16px;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    margin-bottom: 12px;
+}
+.batch-selected-info { font-size: .85rem; color: var(--gray-600); }
+.batch-selected-info strong { color: var(--primary); }
+.batch-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.batch-summary { margin-bottom: 12px; font-size: .9rem; }
+.batch-list {
+    max-height: 260px;
+    overflow-y: auto;
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+    margin-bottom: 16px;
+}
+.batch-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--gray-100);
+    font-size: .85rem;
+}
+.batch-item:last-child { border-bottom: none; }
+.batch-item-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.batch-item-status { white-space: nowrap; font-size: .78rem; }
+.batch-item-ok { color: var(--success); }
+.batch-item-skip { color: var(--gray-400); }
+.batch-item-fail { color: var(--danger); }
+.batch-error-box { text-align: center; padding: 12px 0; }
+.batch-error-box p { margin-bottom: 8px; color: var(--gray-600); }
+
 /* Badges */
 .badge { padding: 2px 8px; border-radius: 10px; font-size: .75rem; font-weight: 600; }
 .badge-help { background: #fef2f2; color: #dc2626; }
