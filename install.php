@@ -24,6 +24,7 @@ try {
         `content` TEXT NOT NULL COMMENT '内容',
         `image` VARCHAR(255) DEFAULT NULL COMMENT '图片路径',
         `status` TINYINT NOT NULL DEFAULT 0 COMMENT '状态: 0待审核, 1已通过, 2已拒绝',
+        `audit_note` VARCHAR(500) DEFAULT NULL COMMENT '审核意见/处理备注',
         `views` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '浏览量',
         `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
         `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

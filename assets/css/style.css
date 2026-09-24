@@ -828,8 +828,146 @@ a:hover { color: var(--primary-dark); }
     .report-type-options {
         grid-template-columns: 1fr;
     }
-    
+
     .report-text {
         display: none;
     }
 }
+
+/* ========== Batch Audit（留言批量审核） ========== */
+.col-check {
+    width: 40px;
+    text-align: center;
+    white-space: nowrap;
+}
+.col-check input[type="checkbox"] {
+    cursor: pointer;
+    width: 15px;
+    height: 15px;
+    vertical-align: middle;
+}
+
+.batch-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: var(--radius-sm);
+    padding: 10px 16px;
+    margin-bottom: 12px;
+}
+.batch-info { font-size: .9rem; color: #1e40af; }
+.batch-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.modal-content-lg { max-width: 720px; }
+.form-hint { font-size: .78rem; color: var(--gray-400); text-align: right; margin-top: 2px; }
+
+.batch-preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 14px 0 8px;
+    font-size: .9rem;
+}
+.batch-preview-tip { font-size: .8rem; font-weight: 400; }
+.batch-err-text { color: var(--danger); }
+.batch-ok-text { color: var(--success); }
+.batch-retry-hint { color: var(--gray-500); font-size: .8rem; }
+
+.batch-preview-list,
+.batch-result-list {
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+    max-height: 320px;
+    overflow-y: auto;
+    margin-bottom: 14px;
+}
+.batch-list-loading { padding: 20px; text-align: center; color: var(--gray-500); font-size: .88rem; }
+
+.batch-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--gray-100);
+    font-size: .83rem;
+}
+.batch-item:last-child { border-bottom: none; }
+.batch-item-skip,
+.batch-result-changed,
+.batch-result-not_found,
+.batch-result-error { background: var(--gray-50); }
+.batch-item-id { color: var(--gray-500); font-weight: 600; white-space: nowrap; }
+.batch-item-title {
+    flex: 1;
+    min-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.batch-item-meta { color: var(--gray-500); white-space: nowrap; }
+
+.batch-tag {
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: .72rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.tag-success { background: #d1fae5; color: #065f46; }
+.tag-changed { background: #fef3c7; color: #92400e; }
+.tag-missing { background: #e5e7eb; color: #374151; }
+.tag-error { background: #fee2e2; color: #991b1b; }
+
+.batch-summary {
+    font-size: .9rem;
+    line-height: 1.8;
+    background: var(--gray-50);
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+    margin-bottom: 14px;
+}
+.sum-success { color: #065f46; font-weight: 600; }
+.sum-changed { color: #92400e; font-weight: 600; }
+.sum-missing { color: #374151; font-weight: 600; }
+.sum-fail { color: #991b1b; font-weight: 600; }
+
+.batch-form-actions { margin-top: 4px; }
+
+.batch-error {
+    color: var(--danger);
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    font-size: .85rem;
+    margin-bottom: 12px;
+}
+
+/* 批量操作轻提示 */
+.batch-toast {
+    position: fixed;
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-10px);
+    padding: 10px 20px;
+    border-radius: 8px;
+    color: #fff;
+    font-size: .88rem;
+    z-index: 9999;
+    box-shadow: 0 4px 12px rgba(0,0,0,.15);
+    opacity: 0;
+    transition: all .3s ease;
+    max-width: 90%;
+    text-align: center;
+}
+.batch-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.batch-toast-info { background: #3b82f6; }
+.batch-toast-success { background: #10b981; }
+.batch-toast-warning { background: #f59e0b; }
+.batch-toast-error { background: #ef4444; }

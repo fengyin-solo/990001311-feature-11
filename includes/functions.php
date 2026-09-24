@@ -62,12 +62,168 @@ function timeAgo($datetime) {
 
 /**
  * 检查管理员登录
+ *
+ * 普通访问（页面）未登录时跳转登录页；
+ * AJAX 请求（批量审核等）未登录/会话失效时返回 401 JSON，
+ * 以便前端识别“权限已失效”，保留当前选择并允许重试。
  */
 function requireAdmin() {
     if (empty($_SESSION['admin_id'])) {
+        $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH'])
+            && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
+        if ($isAjax) {
+            header('Content-Type: application/json; charset=utf-8');
+            http_response_code(401);
+            echo json_encode(['code' => 401, 'msg' => '登录已过期，请重新登录后重试'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
         header('Location: login.php');
         exit;
     }
+}
+
+/**
+ * 解析批量操作提交的留言ID
+ * 支持 ids[]=1&ids[]=2（FormData/数组）或 ids=1,2（逗号分隔字符串）
+ *
+ * @return int[] 去重、去零后的正整数ID数组，最多 100 个
+ */
+function parseBatchIds($raw) {
+    $ids = [];
+    if (is_array($raw)) {
+        $ids = $raw;
+    } elseif (is_string($raw) && $raw !== '') {
+        $ids = explode(',', $raw);
+    }
+    $result = [];
+    foreach ($ids as $v) {
+        $id = intval($v);
+        if ($id > 0) $result[$id] = $id;
+        if (count($result) >= 100) break;
+    }
+    return array_values($result);
+}
+
+/**
+ * 获取待审核留言数量
+ */
+function getPendingMessageCount() {
+    $db = getDB();
+    return (int) $db->query("SELECT COUNT(*) FROM messages WHERE status = 0")->fetchColumn();
+}
+
+/**
+ * 组装留言列表项的前端展示数据（批量预览/结果用）
+ */
+function formatMessageRow($msg) {
+    return [
+        'id' => (int) $msg['id'],
+        'type' => $msg['type'],
+        'type_label' => getTypeLabel($msg['type']),
+        'type_class' => $msg['type'],
+        'title' => cleanInput($msg['title']),
+        'nickname' => cleanInput($msg['nickname']),
+        'status' => (int) $msg['status'],
+        'status_label' => getStatusLabel($msg['status']),
+        'status_class' => getStatusClass($msg['status']),
+    ];
+}
+
+/**
+ * 批量审核预览
+ * 返回提交ID对应的留言当前状态；提交后状态已变化/已删除的条目标记出来，供前端逐条提示。
+ *
+ * @param int[] $ids
+ * @return array ['items' => 每条留言信息(含 exists/pending 标记), 'pending_count' => 当前待审总数]
+ */
+function batchPreviewMessages(array $ids) {
+    $db = getDB();
+    $items = [];
+    if ($ids) {
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $db->prepare("SELECT id, nickname, type, title, status FROM messages WHERE id IN ($placeholders)");
+        $stmt->execute($ids);
+        $rows = $stmt->fetchAll();
+        $byId = [];
+        foreach ($rows as $row) $byId[(int) $row['id']] = $row;
+
+        foreach ($ids as $id) {
+            if (isset($byId[$id])) {
+                $row = formatMessageRow($byId[$id]);
+                $row['exists'] = true;
+                $row['pending'] = ($row['status'] === 0);
+                $items[] = $row;
+            } else {
+                $items[] = ['id' => $id, 'exists' => false, 'pending' => false,
+                    'status' => -1, 'status_label' => '不存在', 'status_class' => '',
+                    'type' => '', 'type_class' => '', 'type_label' => '-', 'title' => '留言不存在或已删除', 'nickname' => '-'];
+            }
+        }
+    }
+    return ['items' => $items, 'pending_count' => getPendingMessageCount()];
+}
+
+/**
+ * 批量审核
+ *
+ * 逐条独立处理：单条失败不回滚已成功项；
+ * 仅当留言仍为“待审核(0)”时才更新（状态已被他人改动则返回 changed，删除则 not_found）。
+ *
+ * @param int[] $ids
+ * @param int   $status 目标状态 1=通过 2=拒绝
+ * @param string $note 统一审核意见
+ * @return array ['results' => 逐条结果, 'success_count', 'fail_count', 'changed_count', 'not_found_count', 'pending_count']
+ */
+function batchAuditMessages(array $ids, $status, $note) {
+    $db = getDB();
+    // 与单条审核相同的条件更新：只影响仍处于待审核状态的留言，成功项逐条提交、互不回滚
+    $updateStmt = $db->prepare("UPDATE messages SET status = ?, audit_note = ? WHERE id = ? AND status = 0");
+    $selectStmt = $db->prepare("SELECT id, nickname, type, title, status FROM messages WHERE id = ?");
+
+    $results = [];
+    $successCount = $failCount = $changedCount = $notFoundCount = 0;
+
+    foreach ($ids as $id) {
+        try {
+            $updateStmt->execute([$status, $note, $id]);
+            if ($updateStmt->rowCount() > 0) {
+                // 更新成功：回查最新数据用于同步列表显示
+                $selectStmt->execute([$id]);
+                $msg = $selectStmt->fetch();
+                $results[] = ['id' => $id, 'result' => 'success', 'msg' => '成功']
+                    + ($msg ? formatMessageRow($msg) : ['title' => '#'.$id]);
+                $successCount++;
+                continue;
+            }
+
+            // 未命中待审行：查一下当前状态，区分“状态已变化”与“留言已删除”
+            $selectStmt->execute([$id]);
+            $msg = $selectStmt->fetch();
+            if ($msg) {
+                $results[] = ['id' => $id, 'result' => 'changed', 'msg' => '状态已变化，未处理']
+                    + formatMessageRow($msg);
+                $changedCount++;
+            } else {
+                $results[] = ['id' => $id, 'result' => 'not_found', 'msg' => '留言不存在或已删除',
+                    'exists' => false, 'status' => -1, 'status_label' => '不存在', 'status_class' => '',
+                    'type' => '', 'type_class' => '', 'type_label' => '-', 'title' => '留言不存在或已删除', 'nickname' => '-'];
+                $notFoundCount++;
+            }
+        } catch (Exception $e) {
+            // 单条异常不影响其它条目，调用方可带着该选择重试
+            $results[] = ['id' => $id, 'result' => 'error', 'msg' => '处理失败，可重试'];
+            $failCount++;
+        }
+    }
+
+    return [
+        'results' => $results,
+        'success_count' => $successCount,
+        'fail_count' => $failCount,
+        'changed_count' => $changedCount,
+        'not_found_count' => $notFoundCount,
+        'pending_count' => getPendingMessageCount(),
+    ];
 }
 
 /**

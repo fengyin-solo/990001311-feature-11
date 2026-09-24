@@ -20,6 +20,7 @@ switch ($action) {
         $msg['content'] = nl2br(cleanInput($msg['content']));
         $msg['title'] = cleanInput($msg['title']);
         $msg['nickname'] = cleanInput($msg['nickname']);
+        $msg['audit_note'] = !empty($msg['audit_note']) ? nl2br(cleanInput($msg['audit_note'])) : '';
         jsonResponse(0, 'ok', $msg);
         break;
 
@@ -30,6 +31,30 @@ switch ($action) {
         $stmt = $db->prepare("UPDATE messages SET status = ? WHERE id = ?");
         $stmt->execute([$status, $id]);
         jsonResponse(0, '操作成功');
+        break;
+
+    case 'batch_preview':
+        // 提交前预览：返回会被影响的条目及其当前状态（状态已变化/已删除的逐条标注）
+        $ids = parseBatchIds($_POST['ids'] ?? []);
+        if (!$ids) jsonResponse(1, '请先选择待审核留言');
+        jsonResponse(0, 'ok', batchPreviewMessages($ids));
+        break;
+
+    case 'batch_audit':
+        // 整组批量审核：逐条独立处理，部分失败不回滚成功项，逐条返回结果
+        $ids = parseBatchIds($_POST['ids'] ?? []);
+        if (!$ids) jsonResponse(1, '请先选择待审核留言');
+
+        $status = intval($_POST['status'] ?? 0);
+        if (!in_array($status, [1, 2], true)) jsonResponse(1, '无效状态');
+
+        $note = trim($_POST['note'] ?? '');
+        if ($note !== '') {
+            $note = mb_substr($note, 0, 500);
+        }
+
+        jsonResponse(0, $status === 1 ? '批量通过完成' : '批量拒绝完成',
+            batchAuditMessages($ids, $status, $note));
         break;
 
     case 'delete':
